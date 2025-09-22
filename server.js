@@ -1,3 +1,5 @@
+require('dotenv').config(); // Load .env file
+
 const express = require('express');
 const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -10,259 +12,146 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// --- API Key Check ---
+if (!process.env.GEMINI_API_KEY) {
+  console.error("❌ Gemini API Key is missing! Add GEMINI_API_KEY in your .env file.");
+  process.exit(1);
+} else {
+  console.log("✅ Gemini API Key loaded.");
+}
+
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Enhanced error handling for complex prompts
+// Handle prompt
 const handleComplexPrompt = async (prompt) => {
   try {
-    // Handle very long prompts by chunking if needed
-    if (prompt.length > 30000) {
-      const chunks = prompt.match(/.{1,25000}/g) || [prompt];
-      const responses = [];
-      
-      for (const chunk of chunks) {
-        // Updated to use latest model
-        const model = genAI.getGenerativeModel({ 
-          model: "gemini-2.0-flash-exp", // Using latest experimental model
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.9,
-            maxOutputTokens: 8192, // Increased for better responses
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        });
-        
-        const result = await model.generateContent(chunk);
-        const response = await result.response;
-        responses.push(response.text());
-      }
-      
-      return responses.join(' ');
-    } else {
-      // Updated to use latest model
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.0-flash-exp", // Using latest experimental model
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.9,
-          maxOutputTokens: 8192, // Increased for better responses
-        }
-      });
-      
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return response.text();
-    }
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash", // ✅ supported free tier model
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.9,
+        maxOutputTokens: 8192,
+      },
+    });
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
   } catch (error) {
-    console.error('Complex prompt error:', error);
+    console.error("Prompt error:", error);
     throw error;
   }
 };
 
-// Chat endpoint - compatible with Proxima code
+// GET /chat
 app.get('/chat', async (req, res) => {
   try {
     const { message } = req.query;
-    
     if (!message) {
       return res.status(400).json({
         error: 'Message parameter is required',
         usage: 'GET /chat?message=your_message_here'
       });
     }
-
-    // Decode the message if it's URL encoded
     const decodedMessage = decodeURIComponent(message);
-    
-    // Handle the complex enhanced prompt from Proxima
     const text = await handleComplexPrompt(decodedMessage);
-    
-    // Return in the exact format expected by the Proxima code
-    res.json({
-      reply: text
-    });
-    
+    res.json({ reply: text });
   } catch (error) {
-    console.error('Error:', error);
-    
-    // Enhanced error handling for different scenarios
-    if (error.message && error.message.includes('API_KEY_INVALID')) {
-      return res.status(401).json({
-        reply: 'I apologize, but I\'m having authentication issues. Please check the API configuration.'
-      });
+    if (error.message?.includes("API_KEY_INVALID")) {
+      return res.status(401).json({ reply: "❌ Invalid API Key." });
     }
-    
-    if (error.message && error.message.includes('SAFETY')) {
-      return res.status(400).json({
-        reply: 'I cannot process that request due to safety guidelines. Could you please rephrase your question?'
-      });
-    }
-    
-    if (error.message && error.message.includes('QUOTA_EXCEEDED')) {
-      return res.status(429).json({
-        reply: 'I\'m experiencing high demand right now. Please try again in a moment.'
-      });
-    }
-    
-    // Generic fallback response that matches Proxima's style
-    res.status(500).json({
-      reply: 'I encountered a processing challenge. Let me try to help you differently.'
-    });
+    res.status(500).json({ reply: "⚠️ Processing error." });
   }
 });
 
-// Health check endpoint - enhanced for Proxima monitoring
-app.get('/', (req, res) => {
-  res.json({
-    status: 'running',
-    service: 'Proxima V2.85 Gemini API Gateway',
-    version: '2.85.0',
-    creator: 'Aayusha Shrestha',
-    endpoints: {
-      chat_get: '/chat?message=your_message',
-      chat_post: '/chat (POST with message in body)',
-      conversation: '/chat/conversation (POST with messages array)',
-      health: '/',
-      status: '/status'
-    },
-    features: [
-      'Enhanced prompt processing',
-      'Complex conversation handling', 
-      'Safety filtering',
-      'Error resilience',
-      'Batch processing support'
-    ],
-    models: {
-      current: 'gemini-2.0-flash-exp',
-      alternatives: ['gemini-1.5-pro', 'gemini-1.5-flash']
-    }
-  });
-});
-
-// Status endpoint for monitoring
-app.get('/status', (req, res) => {
-  res.json({
-    status: 'operational',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development',
-    model: 'gemini-2.0-flash-exp'
-  });
-});
-
-// POST endpoint for larger messages from Proxima
+// POST /chat
 app.post('/chat', async (req, res) => {
   try {
     const { message } = req.body;
-    
-    if (!message) {
-      return res.status(400).json({
-        reply: 'Message is required in request body'
-      });
-    }
-    
+    if (!message) return res.status(400).json({ reply: "Message is required in request body" });
+
     const text = await handleComplexPrompt(message);
-    
-    res.json({
-      reply: text
-    });
-    
+    res.json({ reply: text });
   } catch (error) {
-    console.error('POST Error:', error);
-    
-    // Handle different error types with Proxima-style responses
-    if (error.message && error.message.includes('SAFETY')) {
-      return res.status(400).json({
-        reply: 'I cannot process that request due to content guidelines. Please try rephrasing.'
-      });
-    }
-    
-    res.status(500).json({
-      reply: 'I encountered a processing challenge. Let me approach this differently.'
-    });
+    console.error("POST Error:", error);
+    res.status(500).json({ reply: "⚠️ Processing error." });
   }
 });
 
-// Additional endpoint to handle batch requests (if needed for complex conversations)
+// POST /chat/conversation
 app.post('/chat/conversation', async (req, res) => {
   try {
     const { messages, context } = req.body;
-    
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({
-        reply: 'Messages array is required'
-      });
+      return res.status(400).json({ reply: "Messages array is required" });
     }
-    
-    // Handle conversation context from Proxima
-    const conversationPrompt = messages.map(msg => `${msg.role}: ${msg.content}`).join('\n');
+
+    const conversationPrompt = messages.map(m => `${m.role}: ${m.content}`).join('\n');
     const fullPrompt = context ? `${context}\n\n${conversationPrompt}` : conversationPrompt;
-    
+
     const text = await handleComplexPrompt(fullPrompt);
-    
-    res.json({
-      reply: text
-    });
-    
+    res.json({ reply: text });
   } catch (error) {
-    console.error('Conversation Error:', error);
-    res.status(500).json({
-      reply: 'I encountered a processing challenge with the conversation context.'
-    });
+    console.error("Conversation Error:", error);
+    res.status(500).json({ reply: "⚠️ Conversation processing error." });
   }
 });
 
-// Test endpoint to verify API connectivity
+// Health check
+app.get('/', (req, res) => {
+  res.json({
+    status: "running",
+    service: "Proxima Gemini API Gateway",
+    version: "2.86.0",
+    creator: "Aayusha Shrestha",
+    model: "gemini-2.0-flash",
+    endpoints: {
+      chat_get: "/chat?message=your_message",
+      chat_post: "/chat (POST)",
+      conversation: "/chat/conversation (POST)",
+      test: "/test"
+    }
+  });
+});
+
+// Status
+app.get('/status', (req, res) => {
+  res.json({
+    status: "operational",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    model: "gemini-2.0-flash"
+  });
+});
+
+// Test endpoint
 app.get('/test', async (req, res) => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const result = await model.generateContent("Hello, are you working?");
     const response = await result.response;
-    
     res.json({
-      status: 'success',
+      status: "success",
       test_response: response.text(),
-      model: 'gemini-2.0-flash-exp',
+      model: "gemini-2.0-flash",
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(500).json({
-      status: 'error',
+      status: "error",
       error: error.message,
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// Start server with enhanced logging
+// Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Proxima V2.85 Gemini API Gateway running on port ${PORT}`);
-  console.log(`📝 Chat endpoint: /chat?message=your_message`);
-  console.log(`💬 POST endpoint: /chat (JSON body)`);
-  console.log(`🔄 Conversation endpoint: /chat/conversation`);
+  console.log(`🚀 Proxima Gemini API running on port ${PORT}`);
+  console.log(`💬 Chat endpoint: /chat?message=your_message`);
   console.log(`🧪 Test endpoint: /test`);
-  console.log(`✨ Enhanced for complex AI interactions`);
-  console.log(`🤖 Using model: gemini-2.0-flash-exp`);
-  console.log(`👤 Created by: Aayusha Shrestha`);
+  console.log(`🤖 Using model: gemini-2.0-flash`);
 });
