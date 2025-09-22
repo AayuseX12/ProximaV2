@@ -22,13 +22,14 @@ const handleComplexPrompt = async (prompt) => {
       const responses = [];
       
       for (const chunk of chunks) {
+        // Updated to use latest model
         const model = genAI.getGenerativeModel({ 
-          model: "gemini-pro",
+          model: "gemini-2.0-flash-exp", // Using latest experimental model
           generationConfig: {
             temperature: 0.7,
             topK: 40,
             topP: 0.9,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 8192, // Increased for better responses
           },
           safetySettings: [
             {
@@ -57,13 +58,14 @@ const handleComplexPrompt = async (prompt) => {
       
       return responses.join(' ');
     } else {
+      // Updated to use latest model
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-pro",
+        model: "gemini-2.0-flash-exp", // Using latest experimental model
         generationConfig: {
           temperature: 0.7,
           topK: 40,
           topP: 0.9,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192, // Increased for better responses
         }
       });
       
@@ -149,7 +151,11 @@ app.get('/', (req, res) => {
       'Safety filtering',
       'Error resilience',
       'Batch processing support'
-    ]
+    ],
+    models: {
+      current: 'gemini-2.0-flash-exp',
+      alternatives: ['gemini-1.5-pro', 'gemini-1.5-flash']
+    }
   });
 });
 
@@ -160,7 +166,8 @@ app.get('/status', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    model: 'gemini-2.0-flash-exp'
   });
 });
 
@@ -226,12 +233,36 @@ app.post('/chat/conversation', async (req, res) => {
   }
 });
 
+// Test endpoint to verify API connectivity
+app.get('/test', async (req, res) => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const result = await model.generateContent("Hello, are you working?");
+    const response = await result.response;
+    
+    res.json({
+      status: 'success',
+      test_response: response.text(),
+      model: 'gemini-2.0-flash-exp',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Start server with enhanced logging
 app.listen(PORT, () => {
   console.log(`🚀 Proxima V2.85 Gemini API Gateway running on port ${PORT}`);
   console.log(`📝 Chat endpoint: /chat?message=your_message`);
   console.log(`💬 POST endpoint: /chat (JSON body)`);
   console.log(`🔄 Conversation endpoint: /chat/conversation`);
+  console.log(`🧪 Test endpoint: /test`);
   console.log(`✨ Enhanced for complex AI interactions`);
+  console.log(`🤖 Using model: gemini-2.0-flash-exp`);
   console.log(`👤 Created by: Aayusha Shrestha`);
 });
